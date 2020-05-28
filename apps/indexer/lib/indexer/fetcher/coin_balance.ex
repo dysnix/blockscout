@@ -11,7 +11,7 @@ defmodule Indexer.Fetcher.CoinBalance do
 
   import EthereumJSONRPC, only: [integer_to_quantity: 1, quantity_to_integer: 1]
 
-  alias EthereumJSONRPC.FetchedBalances
+  alias EthereumJSONRPC.{Blocks, FetchedBalances}
   alias Explorer.Chain
   alias Explorer.Chain.{Block, Hash}
   alias Explorer.Chain.Cache.Accounts
@@ -141,11 +141,32 @@ defmodule Indexer.Fetcher.CoinBalance do
 
     importable_balances_params = Enum.map(params_list, &Map.put(&1, :value_fetched_at, value_fetched_at))
 
+    json_rpc_named_arguments = Application.get_env(:explorer, :json_rpc_named_arguments)
+
+    importable_balances_daily_params =
+      params_list
+      |> Enum.map(fn balance_param ->
+        {:ok, %Blocks{blocks_params: [%{timestamp: block_timestamp}]}} =
+          EthereumJSONRPC.fetch_blocks_by_range(
+            balance_param.block_number..balance_param.block_number,
+            json_rpc_named_arguments
+          )
+
+        incoming_balance_daily_param = %{
+          address_hash: balance_param.address_hash,
+          day: DateTime.to_date(block_timestamp),
+          value: balance_param.value
+        }
+
+        incoming_balance_daily_param
+      end)
+
     addresses_params = balances_params_to_address_params(importable_balances_params)
 
     Chain.import(%{
       addresses: %{params: addresses_params, with: :balance_changeset},
       address_coin_balances: %{params: importable_balances_params},
+      address_coin_balances_daily: %{params: importable_balances_daily_params},
       broadcast: broadcast_type
     })
   end
